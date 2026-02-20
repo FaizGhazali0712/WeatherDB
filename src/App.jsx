@@ -1,241 +1,158 @@
-import { useState } from "react";
-import axios from "./api/axios";
+import React, { useEffect, useState, useCallback } from 'react';
+import axios from './api/axios';
+import WeatherCard from './components/WeatherCard';
 
-function App() {
-  const [data, setData] = useState(() => {
+function useLocalDB(key, initial = []) {
+  const [state, setState] = useState(() => {
     try {
-      const saved = localStorage.getItem("lastWeather");
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      console.warn("Failed to parse saved weather", e);
-      return {};
-    }
-  });
-  const [location, setLocation] = useState(() => {
-    try {
-      return localStorage.getItem("lastSearch") || "";
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : initial;
     } catch  {
-      return "";
+      return initial;
     }
   });
 
-  const [savedWeathers, setSavedWeathers] = useState(() => {
+  useEffect(() => {
     try {
-      const raw = localStorage.getItem("savedWeathers");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const API_KEY = import.meta.env.VITE_WEATHER_KEY;
-
-  const fetchWeather = async (city) => {
-    if (!city) return;
-    const q = `/weather?q=${encodeURIComponent(city)}&units=metric&appid=${API_KEY}`;
-    try {
-      const response = await axios.get(q);
-      setData(response.data);
-      // persist last response and search term
-      try {
-        localStorage.setItem("lastWeather", JSON.stringify(response.data));
-        localStorage.setItem("lastSearch", city);
-        // push to stacked savedWeathers (most recent first), dedupe by name+country, limit 8
-        setSavedWeathers((prev) => {
-          const key = (r) => `${r.name.toLowerCase()}|${r.sys?.country || ''}`;
-          const next = [response.data, ...prev.filter((r) => key(r) !== key(response.data))].slice(0, 8);
-          try {
-            localStorage.setItem("savedWeathers", JSON.stringify(next));
-          } catch (e) {
-            console.warn("Could not persist savedWeathers", e);
-          }
-          return next;
-        });
-      } catch (e) {
-        console.warn("Could not persist lastWeather/lastSearch", e);
-      }
-
-      // update history (most recent first), dedupe, limit to 8
-      
+      localStorage.setItem(key, JSON.stringify(state));
     } catch  {
-      alert("Kota tidak ditemukan!");
+      // ignore write errors (e.g. quota exceeded)
     }
-  };
+  }, [key, state]);
 
-  const removeSaved = (item) => {
-    setSavedWeathers((prev) => {
-      const key = (r) => `${r.name.toLowerCase()}|${r.sys?.country || ''}|${r.dt || 0}`;
-      const next = prev.filter((r) => key(r) !== key(item));
-      try {
-        localStorage.setItem("savedWeathers", JSON.stringify(next));
-      } catch (e) {
-        console.warn("Could not persist savedWeathers", e);
-      }
-      return next;
-    });
-  };
-
-  const clearAllSaved = () => {
-    setSavedWeathers([]);
-    try {
-      localStorage.removeItem("savedWeathers");
-    } catch (e) {
-      console.warn("Could not clear savedWeathers", e);
-    }
-  };
-
-  const searchLocation = (event) => {
-    if (event.key === "Enter") {
-      fetchWeather(location);
-      setLocation("");
-    }
-  };
-
-  // helpers: format local time using location timezone offset (seconds)
-  const formatLocalTime = (unixUtcSeconds, timezoneOffsetSeconds) => {
-    if (!unixUtcSeconds && unixUtcSeconds !== 0) return null;
-    const t = (unixUtcSeconds + (timezoneOffsetSeconds || 0)) * 1000;
-    const d = new Date(t);
-    const hh = String(d.getUTCHours()).padStart(2, "0");
-    const mm = String(d.getUTCMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
-  };
-
-  const timezone = data.timezone ?? 0;
-  const sunrise = data.sys?.sunrise ? formatLocalTime(data.sys.sunrise, timezone) : null;
-  const sunset = data.sys?.sunset ? formatLocalTime(data.sys.sunset, timezone) : null;
-
-  const countryFlag = (code) => {
-    if (!code) return null;
-    try {
-      return code
-        .toUpperCase()
-        .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
-    } catch  {
-      return null;
-    }
-  };
-
-  const mainIcon = data.weather?.[0]?.icon;
-  const iconUrl = (ic) => (ic ? `https://openweathermap.org/img/wn/${ic}@2x.png` : null);
-
-  return (
-    <>
-     <div className="min-h-screen bg-slate-900 text-white flex flex-col md:flex-row items-start md:items-start gap-6 pt-20 px-4">
-      {/* Left column: Search + Weather */}
-      <div className="flex-1 max-w-3xl w-full">
-        {/* Search Section */}
-        <div className="text-center p-4">
-        <input
-          value={location}
-          onChange={(event) => setLocation(event.target.value)}
-          onKeyPress={searchLocation}
-          placeholder="Masukkan Nama Kota (Contoh: Jakarta)..."
-          className="p-4 w-80 rounded-2xl bg-white/10 border border-white/20 outline-none focus:border-blue-400 transition-all"
-        />
-        {/* Search history (moved to right-side panel) */}
-        </div>
-      </div>
-
-      {/* Weather Display Section */}
-      {data.name && (
-        <div className="relative mt-6 bg-white/5 p-10 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl text-left overflow-hidden">
-          {/* large vertical temp (decorative) */}
-          <div className="absolute left-4 top-1/2 transform -translate-y-1/2 -rotate-90 origin-left text-white/40 select-none pointer-events-none">
-            <span className="text-[7rem] font-extrabold leading-none">{data.main?.temp ? Math.round(data.main.temp) : '--'}</span>
-          </div>
-
-          <div className="flex items-start justify-between">
-            <div className="pl-28 w-full">
-              <div className="flex items-center justify-between">
-                <h1 className="text-4xl font-semibold tracking-widest">
-                  {data.name}
-                  {data.sys?.country && (
-                    <span className="text-sm ml-3 text-gray-300">{countryFlag(data.sys.country)} {data.sys.country}</span>
-                  )}
-                </h1>
-                <div className="text-right">
-                  <div className="text-sm text-gray-300 uppercase">{data.weather ? data.weather[0].main : ''}</div>
-                  {mainIcon && (
-                    <img src={iconUrl(mainIcon)} alt={data.weather?.[0]?.description || ''} className="w-16 h-16 inline-block mt-2" />
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <h2 className="text-6xl font-bold">{data.main?.temp ? Math.round(data.main.temp) : '--'}</h2>
-              </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-4 text-sm text-gray-300">
-                <div>
-                  <p className="text-gray-400">Sunrise</p>
-                  <p className="font-bold">{sunrise ?? '-'}</p>
-                </div>
-                <div>
-                  <p className="text-gray-400">Sunset</p>
-                  <p className="font-bold">{sunset ?? '-'}</p>
-                </div>
-                <div>
-                  <p className="text-gray-400">Humidity</p>
-                  <p className="font-bold">{data.main?.humidity ?? '-'}%</p>
-                </div>
-                <div>
-                  <p className="text-gray-400">Wind</p>
-                  <p className="font-bold">{data.wind?.speed ?? '-'} MPH</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      </div>
-
-      
-      <aside className="w-full md:w-80 sticky top-24 self-start">
-        <div className="bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-md">
-          <h3 className="text-lg font-semibold mb-3">Pencarian Tersimpan</h3>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm text-gray-300">{savedWeathers.length ? `${savedWeathers.length} tersimpan` : 'Belum ada pencarian tersimpan.'}</div>
-              {savedWeathers.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <button onClick={clearAllSaved} className="text-xs px-2 py-1 bg-red-600/20 hover:bg-red-600/30 rounded">Hapus semua</button>
-                </div>
-              )}
-            </div>
-            {savedWeathers.map((s) => (
-              <div key={`${s.name}-${s.sys?.country}-${s.dt}`} className="w-full flex items-center justify-between p-3 rounded-lg bg-white/3 hover:bg-white/6 border border-white/5">
-                <button
-                  onClick={() => {
-                    setData(s);
-                    setLocation(s.name);
-                  }}
-                  className="flex items-center gap-3 text-left flex-1"
-                >
-                  {s.weather?.[0]?.icon && (
-                    <img src={iconUrl(s.weather[0].icon)} alt={s.weather[0].description || ''} className="w-10 h-10" />
-                  )}
-                  <div>
-                    <div className="font-medium flex items-center gap-2">
-                      <span className="text-xl">{countryFlag(s.sys?.country)}</span>
-                      <span>{s.name}</span>
-                      {s.sys?.country && <span className="text-sm text-gray-300">({s.sys.country})</span>}
-                    </div>
-                    <div className="text-sm text-gray-400">{s.main?.temp ? Math.round(s.main.temp) : ''}</div>
-                  </div>
-                </button>
-                <div className="flex items-center gap-2 ml-2">
-                  <button onClick={() => removeSaved(s)} className="text-sm px-2 py-1 bg-white/10 hover:bg-white/20 rounded">Hapus</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
-
-    </>
-    
-  );
+  return [state, setState];
 }
 
-export default App;
+export default function App() {
+  const [query, setQuery] = useState('Jakarta');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [db, setDb] = useLocalDB('weatherdb.v1', []);
+  const [current, setCurrent] = useState(null);
+
+  const handleSaveCurrent = useCallback(() => {
+    if (!current) return;
+    setDb((prev) => {
+      const exists = prev.find((r) => r.id === current.id);
+      if (exists) return prev.map((r) => (r.id === current.id ? current : r));
+      return [current, ...prev].slice(0, 50);
+    });
+  }, [current, setDb]);
+
+  const fetchCity = useCallback(async (q, { background = false } = {}) => {
+    if (!q) return;
+    if (!background) {
+      setLoading(true);
+      setError(null);
+    }
+    try {
+      const { data } = await axios.get('/weather', { params: { q } });
+      setCurrent(data);
+      setDb((prev) => {
+        const exists = prev.find((r) => r.id === data.id);
+        if (exists) return prev.map((r) => (r.id === data.id ? data : r));
+        return [data, ...prev].slice(0, 50);
+      });
+    } catch (e) {
+      if (!background) setError(e?.response?.data?.message || e.message || 'Failed');
+    } finally {
+      if (!background) setLoading(false);
+    }
+  }, [setDb]);
+
+  // realtime polling every 60s when a city is selected
+  useEffect(() => {
+    let t;
+    if (current?.name) {
+      t = setInterval(() => fetchCity(current.name), 60000);
+    }
+    return () => clearInterval(t);
+  }, [current, fetchCity]);
+
+  // init: load last stored or default
+  useEffect(() => {
+    if (db.length > 0) setCurrent(db[0]);
+  }, [db], );
+
+  const handleSubmit = (e) => {
+    e?.preventDefault();
+    fetchCity(query);
+  };
+
+  return (
+    <div className="min-h-screen bg-linear-to-br from-neutral-900 via-slate-900 to-black text-white flex items-start justify-center p-6">
+      <div className="w-full max-w-4xl">
+        <header className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-semibold">WeatherDB — Realtime</h1>
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ketik nama kota..."
+              className="px-3 py-2 rounded-md bg-white/5 border border-white/10 focus:outline-none"
+            />
+            <button className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500">Cari</button>
+          </form>
+        </header>
+
+        <main className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <section className="md:col-span-2">
+            {loading && <div className="mb-4">Memuat...</div>}
+            {error && <div className="mb-4 text-red-400">{error}</div>}
+
+            {current ? (
+              <WeatherCard data={current} onSave={handleSaveCurrent} />
+            ) : (
+              <div className="p-6 bg-white/3 rounded-lg">Tidak ada data. Cari kota untuk memulai.</div>
+            )}
+          </section>
+
+          <aside className="space-y-4 z-10">
+            <div className="p-4 bg-white/3 rounded-lg">
+              <h2 className="font-semibold mb-2">Riwayat</h2>
+              {db.length === 0 && <div className="text-sm text-gray-300">Kosong</div>}
+              <ul className="space-y-2 max-h-96 overflow-auto">
+                {db.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const city = (item.name || '').trim();
+                        if (!city) return;
+                        // immediately show cached data, then refresh in background
+                        setQuery(city);
+                        setCurrent(item);
+                        // fetch fresh data but don't block UI
+                        fetchCity(city);
+                      }}
+                      className={`w-full text-left p-2 rounded hover:bg-white/5 cursor-pointer ${current?.id === item.id ? 'bg-white/6 border-l-4 border-blue-400' : ''}`}
+                      aria-current={current?.id === item.id ? 'true' : undefined}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {item.sys?.country && (
+                            <img src={`https://flagcdn.com/w20/${item.sys.country.toLowerCase()}.png`} alt={item.sys.country} className="w-5 h-3 rounded-sm object-cover" />
+                          )}
+                          <div>
+                            <div className="font-medium">{item.name}</div>
+                            <div className="text-sm text-gray-300">{item.weather?.[0]?.main} • {Math.round(item.main?.temp)}</div>
+                          </div>
+                        </div>
+                        <img src={`https://openweathermap.org/img/wn/${item.weather?.[0]?.icon}@2x.png`} alt="icon" className="w-12 h-12 pointer-events-none" />
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="p-4 bg-white/3 rounded-lg text-sm">
+              <div className="mb-2">Pengaturan</div>
+              <div className="text-gray-300">Polling otomatis aktif ketika sebuah kota dipilih (60s).</div>
+            </div>
+          </aside>
+        </main>
+      </div>
+    </div>
+  );
+}

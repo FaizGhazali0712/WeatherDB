@@ -34,11 +34,24 @@ function toAlpha3(code) {
   return alpha2ToAlpha3[c] || null;
 }
 
-export default function WeatherCard({ data }) {
+function countryFlagEmoji(alpha2) {
+  if (!alpha2) return null;
+  const s = String(alpha2).toUpperCase();
+  if (s.length !== 2) return null;
+  const A = 0x1f1e6;
+  const first = A + (s.charCodeAt(0) - 65);
+  const second = A + (s.charCodeAt(1) - 65);
+  return String.fromCodePoint(first, second);
+}
+
+export default function WeatherCard({ data, }) {
   const temp = data?.main?.temp;
   const icon = data?.weather?.[0]?.icon;
   const description = data?.weather?.[0]?.main;
   const countryAlpha3 = toAlpha3(data?.sys?.country);
+  const countryAlpha2 = data?.sys?.country ?? null;
+  const countryFlag = countryFlagEmoji(countryAlpha2);
+  const countryFlagUrl = countryAlpha2 ? `https://flagcdn.com/w40/${countryAlpha2.toLowerCase()}.png` : null;
   // determine season based on local month & hemisphere (use data.dt + timezone)
   const seasonFromData = (d, currentTime) => {
     if (!d) return null;
@@ -76,14 +89,37 @@ export default function WeatherCard({ data }) {
     winter: '❄️'
   }[season] || null;
 
+  const formatLocalTime = (unixUtcSeconds, timezoneOffsetSeconds) => {
+    if (!unixUtcSeconds && unixUtcSeconds !== 0) return '-';
+    const t = (unixUtcSeconds + (timezoneOffsetSeconds || 0)) * 1000;
+    const d = new Date(t);
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const tz = data?.timezone ?? 0;
+  const sunrise = data?.sys?.sunrise ? formatLocalTime(data.sys.sunrise, tz) : '-';
+  const sunset = data?.sys?.sunset ? formatLocalTime(data.sys.sunset, tz) : '-';
+
+  // (formatLocalTime, sunrise, sunset and timezone are defined above)
+
   return (
     <div className="mt-10 bg-white/5 p-8 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl text-center max-w-md w-full">
-      <h1 className="text-3xl font-light tracking-widest">{data.name}</h1>
+      <h1 className="text-3xl font-light tracking-widest">
+        {countryFlagUrl ? (
+          <img src={countryFlagUrl} alt={countryAlpha2} className="inline-block w-6 h-4 mr-2 align-middle rounded-sm object-cover" />
+        ) : (
+          <span className="mr-2">{countryFlag ?? ''}</span>
+        )}
+        {data.name}
+      </h1>
+      
 
       <div className="mt-6 flex items-center justify-center gap-4">
         {icon && (
           <img
-            src={`http://openweathermap.org/img/wn/${icon}@2x.png`}
+            src={`https://openweathermap.org/img/wn/${icon}@2x.png`}
             alt={description}
             className="w-20 h-20"
           />
@@ -100,20 +136,29 @@ export default function WeatherCard({ data }) {
         </div>
       )}
 
-      <div className="flex justify-between gap-10 mt-6 p-4 border-t border-white/10">
-        <div>
-          <p className="text-gray-400 text-sm">Kelembapan</p>
-          <p className="font-bold">{data.main?.humidity ?? '--'}%</p>
-        </div>
-        <div>
-          <p className="text-gray-400 text-sm">Angin</p>
-          <p className="font-bold">{data.wind?.speed ?? '--'} MPH</p>
-        </div>
-        <div>
-          <p className="text-gray-400 text-sm">Country Code</p>
-          <p className="font-bold">{countryAlpha3 ?? '--'}</p>
-        </div>
-      </div>
+          <div className="grid grid-cols-2 gap-4 mt-6 p-4 border-t border-white/10 text-sm text-gray-300">
+            <div>
+              <p className="text-gray-400 text-sm">Sunrise</p>
+              <p className="font-bold">{sunrise}</p>
+            </div>
+            <div>
+              <p className="text-gray-400 text-sm">Sunset</p>
+              <p className="font-bold">{sunset}</p>
+            </div>
+            <div>
+              <p className="text-gray-400 text-sm">Kelembapan</p>
+              <p className="font-bold">{data.main?.humidity ?? '--'}%</p>
+            </div>
+            <div>
+              <p className="text-gray-400 text-sm">Angin</p>
+              <p className="font-bold">{data.wind?.speed ?? '--'} MPH</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-gray-400 text-sm">Country</p>
+              <p className="font-bold">{countryFlag ? `${countryFlag} ${countryAlpha2}` : (countryAlpha3 ?? '--')}</p>
+            </div>
+          </div>
+      {/* sunrise/sunset already shown above in the grid */}
     </div>
   );
 }
